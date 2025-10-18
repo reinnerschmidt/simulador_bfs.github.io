@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Simulador BFS - Busca em Largura</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+  .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+  h2 { color: #333; }
+  .controls { margin: 20px 0; padding: 15px; background: #f9f9f9; border-radius: 5px; }
+  label { font-weight: bold; margin-right: 10px; }
+  input[type=number] { width: 80px; font-size: 16px; padding: 5px; margin-right: 15px; }
+  button { font-size: 16px; padding: 8px 15px; margin: 5px; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 4px; }
+  button:hover { background: #45a049; }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  .step-button { background: #2196F3; }
+  .step-button:hover { background: #0b7dda; }
+  .reset-button { background: #f44336; }
+  .reset-button:hover { background: #da190b; }
+  #graph-canvas { border: 2px solid #ddd; margin: 20px 0; background: white; display: block; }
+  #queue-canvas { border: 2px solid #ddd; margin: 20px 0; background: white; display: block; }
+  #output { margin-top: 20px; white-space: pre-wrap; font-family: monospace; border: 1px solid #ddd; padding: 15px; background: #f9f9f9; max-height: 300px; overflow-y: auto; font-size: 14px; }
+  .state-display { margin: 15px 0; padding: 15px; background: #e3f2fd; border-left: 4px solid #2196F3; border-radius: 4px; }
+  .state-display h3 { margin-top: 0; color: #1976D2; }
+  .var-display { display: inline-block; margin: 5px 15px 5px 0; padding: 5px 10px; background: white; border-radius: 3px; font-family: monospace; }
+  .queue-display { background: #fff9c4; padding: 10px; border-radius: 4px; margin: 10px 0; }
+  .canvas-label { font-weight: bold; color: #555; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="container">
+<h2>Simulador BFS - Busca em Largura</h2>
+
+<div class="controls">
+  <label for="numVertices">Número de vértices:</label>
+  <input type="number" id="numVertices" value="8" min="3" max="15" />
+  <button onclick="generateRandomGraph()">Gerar Grafo Aleatório</button>
+  <button onclick="loadDefaultGraph()">Carregar Grafo Padrão</button>
+  <button class="step-button" id="stepBtn" onclick="stepSimulation()" disabled>Próximo Passo</button>
+  <button class="reset-button" onclick="resetSimulation()">Reiniciar</button>
+</div>
+
+<div class="canvas-label">Grafo (não orientado e conexo):</div>
+<canvas id="graph-canvas" width="900" height="500"></canvas>
+
+<div class="canvas-label">Visualização da Fila:</div>
+<canvas id="queue-canvas" width="900" height="120"></canvas>
+
+<div class="state-display" id="stateDisplay" style="display:none;">
+  <h3>Estado Atual</h3>
+  <div id="variables"></div>
+  <div class="queue-display">
+    <strong>Fila (queue):</strong> <span id="queueContent">[]</span>
+  </div>
+</div>
+
+<div id="output"></div>
+</div>
+
+<script>
+let vertices = [];
+let edges = [];
+let adjList = {};
+let marked = {};
+let expl = {};
+let queue = [];
+let cont = 0;
+let curr = null;
+let steps = [];
+let stepIndex = 0;
+let simulationStarted = false;
+let canvas, ctx, queueCanvas, queueCtx;
+let isDefaultGraph = false;
+
+function init() {
+  canvas = document.getElementById('graph-canvas');
+  ctx = canvas.getContext('2d');
+  queueCanvas = document.getElementById('queue-canvas');
+  queueCtx = queueCanvas.getContext('2d');
+  loadDefaultGraph();
+}
+
+function loadDefaultGraph() {
+  isDefaultGraph = true;
+  vertices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  
+  // Arestas completas incluindo (4,5), (3,9) e (9,6)
+  let edgeList = [
+    [1, 4], [1, 5], [1, 9],
+    [2, 3], [2, 9],
+    [3, 6], [3, 7], [3, 9], [3, 10],
+    [4, 5],
+    [5, 9],
+    [6, 8], [6, 9], [6, 10],
+    [8, 9], [8, 10]
+  ];
+  
+  buildGraphFromEdges(edgeList);
+}
+
+function generateRandomGraph() {
+  isDefaultGraph = false;
+  let n = parseInt(document.getElementById('numVertices').value);
+  if (n < 3 || n > 15) {
+    alert('Escolha entre 3 e 15 vértices');
+    return;
+  }
+  
+  vertices = [];
+  for (let i = 1; i <= n; i++) {
+    vertices.push(i);
+  }
+  
+  // Gerar grafo conexo aleatório
+  let edgeList = [];
+  
+  // Primeiro, criar uma árvore geradora para garantir conexão
+  let connected = [1];
+  let unconnected = [];
+  for (let i = 2; i <= n; i++) {
+    unconnected.push(i);
+  }
+  
+  // Conectar todos os vértices
+  while (unconnected.length > 0) {
+    let fromIdx = Math.floor(Math.random() * connected.length);
+    let toIdx = Math.floor(Math.random() * unconnected.length);
+    let from = connected[fromIdx];
+    let to = unconnected[toIdx];
+    
+    edgeList.push([from, to]);
+    connected.push(to);
+    unconnected.splice(toIdx, 1);
+  }
+  
+  // Adicionar arestas aleatórias extras (mantendo não orientado)
+  let numExtraEdges = Math.floor(n * 0.5); // ~50% mais arestas
+  for (let i = 0; i < numExtraEdges; i++) {
+    let from = Math.floor(Math.random() * n) + 1;
+    let to = Math.floor(Math.random() * n) + 1;
+    
+    if (from !== to && !edgeList.some(e => (e[0] === from && e[1] === to) || (e[0] === to && e[1] === from))) {
+      edgeList.push([from, to]);
+    }
+  }
+  
+  buildGraphFromEdges(edgeList);
+}
+
+function buildGraphFromEdges(edgeList) {
+  // Criar arestas bidirecionais
+  edges = [];
+  for (let [u, v] of edgeList) {
+    edges.push([u, v]);
+    edges.push([v, u]);
+  }
+  
+  // Construir lista de adjacências em ordem crescente
+  adjList = {};
+  for (let v of vertices) {
+    adjList[v] = [];
+  }
+  
+  for (let [u, v] of edges) {
+    if (!adjList[u].includes(v)) {
+      adjList[u].push(v);
+    }
+  }
+  
+  // Ordenar cada lista em ordem crescente
+  for (let v of vertices) {
+    adjList[v].sort((a, b) => a - b);
+  }
+  
+  drawGraph();
+  drawQueue();
+  resetSimulation();
+  document.getElementById('stepBtn').disabled = false;
+}
+
+function drawGraph() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  let radius = 20;
+  let positions = {};
+  
+  if (isDefaultGraph && vertices.length === 10) {
+    // Posições fixas para o grafo padrão
+    positions = {
+      1: { x: 165, y: 125 },
+      4: { x: 65, y: 225 },
+      5: { x: 165, y: 325 },
+      9: { x: 320, y: 225 },
+      
+      2: { x: 320, y: 125 },
+      3: { x: 430, y: 125 },
+      6: { x: 430, y: 225 },
+      8: { x: 320, y: 325 },
+      
+      7: { x: 560, y: 100 },
+      10: { x: 560, y: 270 }
+    };
+  } else {
+    // Posições em círculo para grafos aleatórios
+    let centerX = canvas.width / 2;
+    let centerY = canvas.height / 2;
+    let circleRadius = Math.min(centerX, centerY) - 50;
+    let n = vertices.length;
+    
+    for (let i = 0; i < n; i++) {
+      let angle = (2 * Math.PI * i) / n - Math.PI / 2;
+      positions[vertices[i]] = {
+        x: centerX + circleRadius * Math.cos(angle),
+        y: centerY + circleRadius * Math.sin(angle)
+      };
+    }
+  }
+  
+  // Desenhar arestas (apenas uma vez para cada par)
+  ctx.strokeStyle = '#666';
+  ctx.lineWidth = 2;
+  let drawnEdges = new Set();
+  
+  for (let [from, to] of edges) {
+    let edgeKey = from < to ? `${from}-${to}` : `${to}-${from}`;
+    if (drawnEdges.has(edgeKey)) continue;
+    drawnEdges.add(edgeKey);
+    
+    let fromPos = positions[from];
+    let toPos = positions[to];
+    
+    ctx.beginPath();
+    ctx.moveTo(fromPos.x, fromPos.y);
+    ctx.lineTo(toPos.x, toPos.y);
+    ctx.stroke();
+  }
+  
+  // Desenhar vértices
+  for (let v of vertices) {
+    let pos = positions[v];
+    
+    // Cor do vértice
+    if (marked[v]) {
+      ctx.fillStyle = '#4CAF50'; // Verde se marcado
+    } else if (curr === v) {
+      ctx.fillStyle = '#FFC107'; // Amarelo se sendo explorado
+    } else if (queue.includes(v)) {
+      ctx.fillStyle = '#2196F3'; // Azul se na fila
+    } else {
+      ctx.fillStyle = '#fff';
+    }
+    
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, radius, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+    
+    // Número do vértice
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 16px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(v, pos.x, pos.y);
+    
+    // Número de exploração (em vermelho ao lado)
+    if (expl[v] !== undefined) {
+      ctx.fillStyle = '#c62828';
+      ctx.font = 'bold 14px Arial';
+      ctx.fillText(expl[v], pos.x + 25, pos.y - 5);
+    }
+  }
+}
+
+function drawQueue() {
+  queueCtx.clearRect(0, 0, queueCanvas.width, queueCanvas.height);
+  
+  queueCtx.fillStyle = '#333';
+  queueCtx.font = 'bold 16px Arial';
+  queueCtx.textAlign = 'left';
+  queueCtx.fillText('Fila (Queue):', 20, 25);
+  
+  if (queue.length === 0) {
+    queueCtx.fillStyle = '#999';
+    queueCtx.font = '14px Arial';
+    queueCtx.fillText('[ vazia ]', 150, 25);
+    return;
+  }
+  
+  let boxWidth = 60;
+  let boxHeight = 50;
+  let startX = 150;
+  let startY = 40;
+  let spacing = 10;
+  
+  queueCtx.fillStyle = '#666';
+  queueCtx.font = '12px Arial';
+  queueCtx.textAlign = 'center';
+  queueCtx.fillText('FRONT', startX + boxWidth / 2, startY - 10);
+  
+  for (let i = 0; i < queue.length; i++) {
+    let x = startX + i * (boxWidth + spacing);
+    
+    queueCtx.fillStyle = '#2196F3';
+    queueCtx.fillRect(x, startY, boxWidth, boxHeight);
+    
+    queueCtx.strokeStyle = '#1565C0';
+    queueCtx.lineWidth = 2;
+    queueCtx.strokeRect(x, startY, boxWidth, boxHeight);
+    
+    queueCtx.fillStyle = '#fff';
+    queueCtx.font = 'bold 24px Arial';
+    queueCtx.textAlign = 'center';
+    queueCtx.textBaseline = 'middle';
+    queueCtx.fillText(queue[i], x + boxWidth / 2, startY + boxHeight / 2);
+    
+    if (i < queue.length - 1) {
+      queueCtx.strokeStyle = '#666';
+      queueCtx.lineWidth = 2;
+      queueCtx.beginPath();
+      queueCtx.moveTo(x + boxWidth + 2, startY + boxHeight / 2);
+      queueCtx.lineTo(x + boxWidth + spacing - 2, startY + boxHeight / 2);
+      queueCtx.stroke();
+      
+      queueCtx.beginPath();
+      queueCtx.moveTo(x + boxWidth + spacing - 2, startY + boxHeight / 2);
+      queueCtx.lineTo(x + boxWidth + spacing - 6, startY + boxHeight / 2 - 4);
+      queueCtx.moveTo(x + boxWidth + spacing - 2, startY + boxHeight / 2);
+      queueCtx.lineTo(x + boxWidth + spacing - 6, startY + boxHeight / 2 + 4);
+      queueCtx.stroke();
+    }
+  }
+  
+  let lastX = startX + (queue.length - 1) * (boxWidth + spacing);
+  queueCtx.fillStyle = '#666';
+  queueCtx.font = '12px Arial';
+  queueCtx.textAlign = 'center';
+  queueCtx.fillText('REAR', lastX + boxWidth / 2, startY + boxHeight + 15);
+}
+
+function resetSimulation() {
+  marked = {};
+  expl = {};
+  queue = [];
+  cont = 0;
+  curr = null;
+  steps = [];
+  stepIndex = 0;
+  simulationStarted = false;
+  
+  document.getElementById('output').textContent = '';
+  document.getElementById('stateDisplay').style.display = 'none';
+  
+  if (vertices.length > 0) {
+    prepareSimulation();
+    drawGraph();
+    drawQueue();
+  }
+}
+
+function prepareSimulation() {
+  steps = [];
+  let s = 1; // vértice inicial
+  
+  steps.push({ type: 'init', message: 'Iniciando BFS(1)' });
+  steps.push({ type: 'unmark', message: 'Desmarcar todos os vértices' });
+  steps.push({ type: 'cont', message: 'cont = 0' });
+  steps.push({ type: 'mark', v: s, message: `Marcar vértice ${s}` });
+  
+  let tempCont = 0;
+  steps.push({ type: 'expl', v: s, cont: ++tempCont, message: `expl[${s}] = ${tempCont}` });
+  steps.push({ type: 'enqueue', v: s, message: `Enfileirar ${s}` });
+  
+  let tempQueue = [s];
+  let tempMarked = { [s]: true };
+  let tempExpl = { [s]: tempCont };
+  
+  while (tempQueue.length > 0) {
+    let curr = tempQueue.shift();
+    steps.push({ type: 'dequeue', v: curr, message: `curr = ${curr} (dequeue)` });
+    steps.push({ type: 'explore', v: curr, message: `Explorando vértice ${curr}` });
+    
+    for (let v of adjList[curr]) {
+      if (!tempMarked[v]) {
+        tempMarked[v] = true;
+        tempExpl[v] = ++tempCont;
+        tempQueue.push(v);
+        
+        steps.push({ type: 'check', from: curr, to: v, message: `Aresta <${curr},${v}>: ${v} está desmarcado` });
+        steps.push({ type: 'mark', v: v, message: `Marcar vértice ${v}` });
+        steps.push({ type: 'expl', v: v, cont: tempCont, message: `expl[${v}] = ${tempCont}` });
+        steps.push({ type: 'enqueue', v: v, message: `Enfileirar ${v}` });
+      } else {
+        steps.push({ type: 'check', from: curr, to: v, message: `Aresta <${curr},${v}>: ${v} já marcado` });
+      }
+    }
+  }
+  
+  steps.push({ type: 'complete', message: 'BFS completo!' });
+}
+
+function stepSimulation() {
+  if (stepIndex >= steps.length) return;
+  
+  if (!simulationStarted) {
+    simulationStarted = true;
+    document.getElementById('stateDisplay').style.display = 'block';
+  }
+  
+  let step = steps[stepIndex];
+  let output = document.getElementById('output').textContent;
+  
+  switch(step.type) {
+    case 'init':
+    case 'unmark':
+    case 'cont':
+      output += step.message + '\n';
+      break;
+      
+    case 'mark':
+      marked[step.v] = true;
+      output += step.message + '\n';
+      break;
+      
+    case 'expl':
+      expl[step.v] = step.cont;
+      cont = step.cont;
+      output += step.message + '\n';
+      break;
+      
+    case 'enqueue':
+      queue.push(step.v);
+      output += step.message + '\n';
+      break;
+      
+    case 'dequeue':
+      curr = queue.shift();
+      output += step.message + '\n';
+      break;
+      
+    case 'explore':
+      output += step.message + '\n';
+      break;
+      
+    case 'check':
+      output += step.message + '\n';
+      break;
+      
+    case 'complete':
+      output += '\n' + step.message + '\n';
+      document.getElementById('stepBtn').disabled = true;
+      curr = null;
+      break;
+  }
+  
+  document.getElementById('output').textContent = output;
+  document.getElementById('output').scrollTop = document.getElementById('output').scrollHeight;
+  
+  updateStateDisplay();
+  drawGraph();
+  drawQueue();
+  
+  stepIndex++;
+}
+
+function updateStateDisplay() {
+  let varsHtml = `
+    <div class="var-display"><strong>cont:</strong> ${cont}</div>
+    <div class="var-display"><strong>curr:</strong> ${curr !== null ? curr : 'null'}</div>
+  `;
+  
+  document.getElementById('variables').innerHTML = varsHtml;
+  document.getElementById('queueContent').textContent = '[' + queue.join(', ') + ']';
+}
+
+window.onload = init;
+</script>
+
+</body>
+</html>
