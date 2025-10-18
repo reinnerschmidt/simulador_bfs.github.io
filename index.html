@@ -6,7 +6,7 @@
 <title>Simulador BFS - Busca em Largura</title>
 <style>
   body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-  .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+  .container { max-width: 1400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
   h2 { color: #333; }
   .controls { margin: 20px 0; padding: 15px; background: #f9f9f9; border-radius: 5px; }
   label { font-weight: bold; margin-right: 10px; }
@@ -18,8 +18,9 @@
   .step-button:hover { background: #0b7dda; }
   .reset-button { background: #f44336; }
   .reset-button:hover { background: #da190b; }
-  #graph-canvas { border: 2px solid #ddd; margin: 20px 0; background: white; display: block; }
-  #queue-canvas { border: 2px solid #ddd; margin: 20px 0; background: white; display: block; }
+  .canvas-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  canvas { border: 2px solid #ddd; margin: 10px 0; background: white; display: block; width: 100%; }
+  #queue-canvas { grid-column: 1 / -1; }
   #output { margin-top: 20px; white-space: pre-wrap; font-family: monospace; border: 1px solid #ddd; padding: 15px; background: #f9f9f9; max-height: 300px; overflow-y: auto; font-size: 14px; }
   .state-display { margin: 15px 0; padding: 15px; background: #e3f2fd; border-left: 4px solid #2196F3; border-radius: 4px; }
   .state-display h3 { margin-top: 0; color: #1976D2; }
@@ -36,16 +37,25 @@
   <label for="numVertices">Número de vértices:</label>
   <input type="number" id="numVertices" value="8" min="3" max="15" />
   <button onclick="generateRandomGraph()">Gerar Grafo Aleatório</button>
-  <button onclick="loadDefaultGraph()">Carregar Grafo Padrão</button>
+  <button onclick="loadDefaultGraph()">Carregar Padrão 1</button>
+  <button onclick="loadDefaultGraph2()">Carregar Padrão 2</button>
   <button class="step-button" id="stepBtn" onclick="stepSimulation()" disabled>Próximo Passo</button>
   <button class="reset-button" onclick="resetSimulation()">Reiniciar</button>
 </div>
 
-<div class="canvas-label">Grafo (não orientado e conexo):</div>
-<canvas id="graph-canvas" width="900" height="500"></canvas>
+<div class="canvas-container">
+  <div>
+    <div class="canvas-label">Grafo (não orientado e conexo):</div>
+    <canvas id="graph-canvas" width="650" height="500"></canvas>
+  </div>
+  <div>
+    <div class="canvas-label">Árvore de Exploração BFS:</div>
+    <canvas id="tree-canvas" width="650" height="500"></canvas>
+  </div>
+</div>
 
 <div class="canvas-label">Visualização da Fila:</div>
-<canvas id="queue-canvas" width="900" height="120"></canvas>
+<canvas id="queue-canvas" width="1300" height="120"></canvas>
 
 <div class="state-display" id="stateDisplay" style="display:none;">
   <h3>Estado Atual</h3>
@@ -70,22 +80,25 @@ let curr = null;
 let steps = [];
 let stepIndex = 0;
 let simulationStarted = false;
-let canvas, ctx, queueCanvas, queueCtx;
-let isDefaultGraph = false;
+let canvas, ctx, queueCanvas, queueCtx, treeCanvas, treeCtx;
+let currentGraphType = 'default1'; // 'default1', 'default2', ou 'random'
+let treeEdges = [];
+let treeParent = {};
 
 function init() {
   canvas = document.getElementById('graph-canvas');
   ctx = canvas.getContext('2d');
   queueCanvas = document.getElementById('queue-canvas');
   queueCtx = queueCanvas.getContext('2d');
+  treeCanvas = document.getElementById('tree-canvas');
+  treeCtx = treeCanvas.getContext('2d');
   loadDefaultGraph();
 }
 
 function loadDefaultGraph() {
-  isDefaultGraph = true;
+  currentGraphType = 'default1';
   vertices = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
   
-  // Arestas completas incluindo (4,5), (3,9) e (9,6)
   let edgeList = [
     [1, 4], [1, 5], [1, 9],
     [2, 3], [2, 9],
@@ -99,8 +112,35 @@ function loadDefaultGraph() {
   buildGraphFromEdges(edgeList);
 }
 
+function loadDefaultGraph2() {
+  currentGraphType = 'default2';
+  // Grafo padrão 2: A-B-C-D-E-F-G-H (8 vértices)
+  // Usando números 1-8 para manter compatibilidade
+  vertices = [1, 2, 3, 4, 5, 6, 7, 8];
+  
+  // Arestas baseadas na imagem:
+  // A(1) -> B(2), C(3)
+  // B(2) -> D(4), E(5)
+  // C(3) -> F(6), G(7)
+  // D(4) -> H(8)
+  // E(5) -> H(8)
+  // F(6) -> H(8)
+  // G(7) -> H(8)
+  let edgeList = [
+    [1, 2], [1, 3],
+    [2, 4], [2, 5],
+    [3, 6], [3, 7],
+    [4, 8],
+    [5, 8],
+    [6, 8],
+    [7, 8]
+  ];
+  
+  buildGraphFromEdges(edgeList);
+}
+
 function generateRandomGraph() {
-  isDefaultGraph = false;
+  currentGraphType = 'random';
   let n = parseInt(document.getElementById('numVertices').value);
   if (n < 3 || n > 15) {
     alert('Escolha entre 3 e 15 vértices');
@@ -112,17 +152,13 @@ function generateRandomGraph() {
     vertices.push(i);
   }
   
-  // Gerar grafo conexo aleatório
   let edgeList = [];
-  
-  // Primeiro, criar uma árvore geradora para garantir conexão
   let connected = [1];
   let unconnected = [];
   for (let i = 2; i <= n; i++) {
     unconnected.push(i);
   }
   
-  // Conectar todos os vértices
   while (unconnected.length > 0) {
     let fromIdx = Math.floor(Math.random() * connected.length);
     let toIdx = Math.floor(Math.random() * unconnected.length);
@@ -134,8 +170,7 @@ function generateRandomGraph() {
     unconnected.splice(toIdx, 1);
   }
   
-  // Adicionar arestas aleatórias extras (mantendo não orientado)
-  let numExtraEdges = Math.floor(n * 0.5); // ~50% mais arestas
+  let numExtraEdges = Math.floor(n * 0.5);
   for (let i = 0; i < numExtraEdges; i++) {
     let from = Math.floor(Math.random() * n) + 1;
     let to = Math.floor(Math.random() * n) + 1;
@@ -149,14 +184,12 @@ function generateRandomGraph() {
 }
 
 function buildGraphFromEdges(edgeList) {
-  // Criar arestas bidirecionais
   edges = [];
   for (let [u, v] of edgeList) {
     edges.push([u, v]);
     edges.push([v, u]);
   }
   
-  // Construir lista de adjacências em ordem crescente
   adjList = {};
   for (let v of vertices) {
     adjList[v] = [];
@@ -168,12 +201,12 @@ function buildGraphFromEdges(edgeList) {
     }
   }
   
-  // Ordenar cada lista em ordem crescente
   for (let v of vertices) {
     adjList[v].sort((a, b) => a - b);
   }
   
   drawGraph();
+  drawTree();
   drawQueue();
   resetSimulation();
   document.getElementById('stepBtn').disabled = false;
@@ -185,24 +218,32 @@ function drawGraph() {
   let radius = 20;
   let positions = {};
   
-  if (isDefaultGraph && vertices.length === 10) {
-    // Posições fixas para o grafo padrão
+  if (currentGraphType === 'default1' && vertices.length === 10) {
     positions = {
       1: { x: 165, y: 125 },
       4: { x: 65, y: 225 },
       5: { x: 165, y: 325 },
       9: { x: 320, y: 225 },
-      
       2: { x: 320, y: 125 },
       3: { x: 430, y: 125 },
       6: { x: 430, y: 225 },
       8: { x: 320, y: 325 },
-      
       7: { x: 560, y: 100 },
       10: { x: 560, y: 270 }
     };
+  } else if (currentGraphType === 'default2' && vertices.length === 8) {
+    // Layout hierárquico para o padrão 2
+    positions = {
+      1: { x: 325, y: 80 },   // A (topo)
+      2: { x: 200, y: 180 },  // B
+      3: { x: 450, y: 180 },  // C
+      4: { x: 120, y: 280 },  // D
+      5: { x: 280, y: 280 },  // E
+      6: { x: 370, y: 280 },  // F
+      7: { x: 530, y: 280 },  // G
+      8: { x: 325, y: 400 }   // H (base)
+    };
   } else {
-    // Posições em círculo para grafos aleatórios
     let centerX = canvas.width / 2;
     let centerY = canvas.height / 2;
     let circleRadius = Math.min(centerX, centerY) - 50;
@@ -217,7 +258,6 @@ function drawGraph() {
     }
   }
   
-  // Desenhar arestas (apenas uma vez para cada par)
   ctx.strokeStyle = '#666';
   ctx.lineWidth = 2;
   let drawnEdges = new Set();
@@ -236,17 +276,15 @@ function drawGraph() {
     ctx.stroke();
   }
   
-  // Desenhar vértices
   for (let v of vertices) {
     let pos = positions[v];
     
-    // Cor do vértice
     if (marked[v]) {
-      ctx.fillStyle = '#4CAF50'; // Verde se marcado
+      ctx.fillStyle = '#4CAF50';
     } else if (curr === v) {
-      ctx.fillStyle = '#FFC107'; // Amarelo se sendo explorado
+      ctx.fillStyle = '#FFC107';
     } else if (queue.includes(v)) {
-      ctx.fillStyle = '#2196F3'; // Azul se na fila
+      ctx.fillStyle = '#2196F3';
     } else {
       ctx.fillStyle = '#fff';
     }
@@ -258,20 +296,116 @@ function drawGraph() {
     ctx.fill();
     ctx.stroke();
     
-    // Número do vértice
     ctx.fillStyle = '#000';
     ctx.font = 'bold 16px Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(v, pos.x, pos.y);
     
-    // Número de exploração (em vermelho ao lado)
     if (expl[v] !== undefined) {
       ctx.fillStyle = '#c62828';
       ctx.font = 'bold 14px Arial';
       ctx.fillText(expl[v], pos.x + 25, pos.y - 5);
     }
   }
+}
+
+function drawTree() {
+  treeCtx.clearRect(0, 0, treeCanvas.width, treeCanvas.height);
+  
+  if (treeEdges.length === 0) {
+    treeCtx.fillStyle = '#999';
+    treeCtx.font = '14px Arial';
+    treeCtx.textAlign = 'center';
+    treeCtx.fillText('Árvore será construída durante a exploração', treeCanvas.width / 2, treeCanvas.height / 2);
+    return;
+  }
+  
+  let radius = 20;
+  let positions = calculateTreePositions();
+  
+  treeCtx.strokeStyle = '#2196F3';
+  treeCtx.lineWidth = 2;
+  
+  for (let [from, to] of treeEdges) {
+    let fromPos = positions[from];
+    let toPos = positions[to];
+    
+    treeCtx.beginPath();
+    treeCtx.moveTo(fromPos.x, fromPos.y);
+    treeCtx.lineTo(toPos.x, toPos.y);
+    treeCtx.stroke();
+  }
+  
+  for (let v of vertices) {
+    if (!positions[v]) continue;
+    
+    let pos = positions[v];
+    
+    if (expl[v] !== undefined) {
+      treeCtx.fillStyle = '#4CAF50';
+    } else {
+      treeCtx.fillStyle = '#fff';
+    }
+    
+    treeCtx.strokeStyle = '#333';
+    treeCtx.lineWidth = 2;
+    treeCtx.beginPath();
+    treeCtx.arc(pos.x, pos.y, radius, 0, 2 * Math.PI);
+    treeCtx.fill();
+    treeCtx.stroke();
+    
+    treeCtx.fillStyle = '#000';
+    treeCtx.font = 'bold 16px Arial';
+    treeCtx.textAlign = 'center';
+    treeCtx.textBaseline = 'middle';
+    treeCtx.fillText(v, pos.x, pos.y);
+  }
+}
+
+function calculateTreePositions() {
+  let positions = {};
+  let levels = {};
+  let levelCounts = {};
+  
+  for (let v of vertices) {
+    if (expl[v] === 1) {
+      levels[v] = 0;
+    }
+  }
+  
+  for (let [from, to] of treeEdges) {
+    if (levels[from] !== undefined) {
+      levels[to] = levels[from] + 1;
+    }
+  }
+  
+  for (let v in levels) {
+    let level = levels[v];
+    if (!levelCounts[level]) levelCounts[level] = 0;
+    levelCounts[level]++;
+  }
+  
+  let levelIndices = {};
+  let verticalSpacing = 80;
+  let startY = 50;
+  
+  for (let v in levels) {
+    let level = levels[v];
+    if (!levelIndices[level]) levelIndices[level] = 0;
+    
+    let totalInLevel = levelCounts[level];
+    let horizontalSpacing = treeCanvas.width / (totalInLevel + 1);
+    
+    positions[v] = {
+      x: horizontalSpacing * (levelIndices[level] + 1),
+      y: startY + level * verticalSpacing
+    };
+    
+    levelIndices[level]++;
+  }
+  
+  return positions;
 }
 
 function drawQueue() {
@@ -349,6 +483,8 @@ function resetSimulation() {
   steps = [];
   stepIndex = 0;
   simulationStarted = false;
+  treeEdges = [];
+  treeParent = {};
   
   document.getElementById('output').textContent = '';
   document.getElementById('stateDisplay').style.display = 'none';
@@ -356,13 +492,14 @@ function resetSimulation() {
   if (vertices.length > 0) {
     prepareSimulation();
     drawGraph();
+    drawTree();
     drawQueue();
   }
 }
 
 function prepareSimulation() {
   steps = [];
-  let s = 1; // vértice inicial
+  let s = 1;
   
   steps.push({ type: 'init', message: 'Iniciando BFS(1)' });
   steps.push({ type: 'unmark', message: 'Desmarcar todos os vértices' });
@@ -376,6 +513,7 @@ function prepareSimulation() {
   let tempQueue = [s];
   let tempMarked = { [s]: true };
   let tempExpl = { [s]: tempCont };
+  let tempTreeParent = {};
   
   while (tempQueue.length > 0) {
     let curr = tempQueue.shift();
@@ -387,10 +525,12 @@ function prepareSimulation() {
         tempMarked[v] = true;
         tempExpl[v] = ++tempCont;
         tempQueue.push(v);
+        tempTreeParent[v] = curr;
         
         steps.push({ type: 'check', from: curr, to: v, message: `Aresta <${curr},${v}>: ${v} está desmarcado` });
         steps.push({ type: 'mark', v: v, message: `Marcar vértice ${v}` });
         steps.push({ type: 'expl', v: v, cont: tempCont, message: `expl[${v}] = ${tempCont}` });
+        steps.push({ type: 'tree_edge', from: curr, to: v, message: `Adicionar aresta ${curr}->${v} à árvore` });
         steps.push({ type: 'enqueue', v: v, message: `Enfileirar ${v}` });
       } else {
         steps.push({ type: 'check', from: curr, to: v, message: `Aresta <${curr},${v}>: ${v} já marcado` });
@@ -430,6 +570,12 @@ function stepSimulation() {
       output += step.message + '\n';
       break;
       
+    case 'tree_edge':
+      treeEdges.push([step.from, step.to]);
+      treeParent[step.to] = step.from;
+      output += step.message + '\n';
+      break;
+      
     case 'enqueue':
       queue.push(step.v);
       output += step.message + '\n';
@@ -460,6 +606,7 @@ function stepSimulation() {
   
   updateStateDisplay();
   drawGraph();
+  drawTree();
   drawQueue();
   
   stepIndex++;
